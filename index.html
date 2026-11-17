@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#00A3DA">
+<title>Thermal Printer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{--blue:#00A3DA;--bg:#efeff4;--line:#e3e3e8;--text:#111;--sub:#8a8a8e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:17px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+#app{min-height:100vh;padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+.nav{position:sticky;top:0;z-index:5;background:var(--blue);color:#fff;padding:env(safe-area-inset-top) 8px 0;display:flex;align-items:center;height:calc(56px + env(safe-area-inset-top))}
+.nav h1{flex:1;text-align:center;margin:0;font-size:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav .side{width:100px;display:flex}
+.nav .side.r{justify-content:flex-end}
+.nav button{background:none;border:0;color:#fff;font-size:17px;padding:8px;white-space:nowrap}
+.nav .dots{font-size:26px;letter-spacing:2px;line-height:1}
+.list{background:#fff}
+.row{display:flex;align-items:center;gap:12px;min-height:58px;padding:10px 16px;border-bottom:1px solid var(--line);background:#fff}
+.row .t{flex:1;min-width:0}
+.row .v{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+.row .num{font-size:20px;min-width:28px;text-align:right}
+.chev::after{content:"›";color:#c4c4c7;font-size:24px;margin-left:6px}
+.tap{width:100%;text-align:left;border:0}
+.sec{padding:22px 16px 6px;color:var(--sub);font-size:13px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+.sec button{background:none;border:0;color:var(--blue);font-size:15px;text-transform:none;padding:0}
+.foot{padding:6px 16px 4px;color:var(--sub);font-size:13px}
+.seg{display:flex;background:#eeeef0;border-radius:9px;padding:2px;width:230px;flex-shrink:0}
+.seg button{flex:1;border:0;background:none;padding:7px 4px;border-radius:7px;font-size:15px}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15);font-weight:600}
+.stepper{display:flex;align-items:center;background:#eeeef0;border-radius:9px;flex-shrink:0}
+.stepper button{width:50px;height:36px;border:0;background:none;font-size:24px;line-height:1}
+.stepper i{width:1px;height:20px;background:#d1d1d6}
+.sw{position:relative;width:51px;height:31px;flex-shrink:0}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#e9e9eb;border-radius:31px;transition:.2s}
+.sw span::before{content:"";position:absolute;width:27px;height:27px;left:2px;top:2px;background:#fff;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,.25);transition:.2s}
+.sw input:checked+span{background:var(--blue)}
+.sw input:checked+span::before{transform:translateX(20px)}
+.sw input:disabled+span{opacity:.4}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:rgba(250,250,250,.97);border-top:1px solid var(--line);display:flex;align-items:center;padding:8px 0 calc(6px + env(safe-area-inset-bottom))}
+.tabbar>button{flex:1;background:none;border:0;color:#8e8e93;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.tabbar>button.on{color:var(--blue)}
+.tabbar svg{width:28px;height:28px}
+.plus{flex:1;display:flex;justify-content:center}
+.plus button{width:60px;height:54px;border:0;border-radius:6px;background:var(--blue);color:#fff;font-size:38px;line-height:1}
+.btn{display:block;width:100%;border:0;border-radius:12px;background:var(--blue);color:#fff;font-weight:600;padding:15px;font-size:17px}
+.btn:disabled{opacity:.45}
+.btn.red{background:#ff3b30}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:7;background:rgba(248,248,248,.97);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.bar .msg{font-size:13px;color:var(--sub);margin-bottom:8px;text-align:center}
+.bar .warn{color:#ff9500}
+progress{width:100%;height:6px;margin-bottom:8px;accent-color:var(--blue)}
+.page{min-height:100vh;padding-bottom:170px}
+textarea,input[type=text]{width:100%;border:0;font:inherit;padding:0;background:none;outline:none;resize:vertical}
+textarea{min-height:150px}
+.mono{font-family:Menlo,"Courier New",monospace;font-size:15px}
+.prevbox{background:#fff;padding:12px;display:flex;justify-content:center}
+.prevbox img{max-width:100%;image-rendering:pixelated;border:1px solid #ddd;background:#fff}
+.thumb{width:58px;height:76px;border:1px solid #ddd;border-radius:4px;background:#fff;object-fit:contain;flex-shrink:0}
+.qi{flex:1;min-width:0}
+.qi .n{font-size:15px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.qi .c{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--sub)}
+.mini{border:0;background:#eeeef0;border-radius:7px;width:32px;height:28px;font-size:17px}
+.mini.del{color:#ff3b30}
+.ico{width:26px;height:26px;color:var(--blue);flex-shrink:0}
+.check{width:24px;height:24px;border-radius:50%;border:2px solid #c7c7cc;flex-shrink:0}
+.check.on{background:var(--blue);border-color:var(--blue);box-shadow:inset 0 0 0 3px #fff}
+.sheet-bg{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.35);display:flex;align-items:flex-end}
+.sheet{width:100%;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+.sheet .grp{background:#fff;border-radius:14px;overflow:hidden;margin-bottom:8px}
+.sheet button{display:block;width:100%;border:0;background:#fff;padding:17px;font-size:19px;color:var(--blue);border-bottom:1px solid var(--line)}
+.sheet button.red{color:#ff3b30}
+.sheet button.b{font-weight:600}
+.toast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top));transform:translateX(-50%);z-index:30;background:rgba(30,30,30,.92);color:#fff;padding:10px 16px;border-radius:12px;font-size:15px;max-width:90%;text-align:center}
+.banner{background:#fff4e5;color:#8a5300;padding:12px 16px;font-size:14px;border-bottom:1px solid #f3d9b1}
+.empty{color:var(--sub);font-size:15px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<input type="file" id="fileIn" accept="application/pdf,image/*" multiple hidden>
+<input type="file" id="imgIn" accept="image/*" hidden>
+<script>
+"use strict";
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+/* ================= Penyimpanan ================= */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+};
+const DEF = { density: 8, speed: 8, inverted: false, paperType: "CONT", crop: "TEAR", orderType: "ESC",
+  paperWidth: 80, autoFit: true, autoRotate: true, labelHeight: 100, chunk: 180, delay: 15 };
+let cfg = Object.assign({}, DEF, store.get("tp.cfg", {}));
+const saveCfg = () => store.set("tp.cfg", cfg);
+let docs = store.get("tp.docs", []);
+const saveDocs = () => { if (!store.set("tp.docs", docs)) toast("Penyimpanan penuh — hapus beberapa dokumen."); };
+
+const dots = () => cfg.paperWidth === 58 ? 384 : 576;
+const pageH = () => cfg.paperType === "CONT" ? null : cfg.labelHeight * 8;
+const sizeText = () => `${cfg.paperWidth} × ${cfg.paperType === "CONT" ? "auto" : cfg.labelHeight} mm`;
+const CROPS = { TEAR: "Kertas maju ke posisi sobek setelah cetak", CUT: "Potong otomatis (butuh auto-cutter)",
+  PEEL: "Mode kupas label (peel-off)", NONE: "Tidak ada aksi setelah cetak" };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+/* ================= Bluetooth ================= */
+const SERVICES = [0x18f0, 0xff00, 0xffe0, 0xfee7, 0xae30, 0xff10, 0xfff0,
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2", "49535343-fe7d-4ae5-8fa9-9fafd205e455"];
+const bt = { device: null, ch: null, state: "Unconnected" };
+const btReady = () => !!bt.ch;
+
+async function connectPrinter() {
+  if (!navigator.bluetooth) { toast("Browser ini tidak mendukung Bluetooth. Buka halaman ini di aplikasi Bluefy."); return; }
+  try {
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
+    await openDevice(device);
+  } catch (e) {
+    if (e.name !== "NotFoundError") toast("Gagal tersambung: " + e.message);
+    if (!bt.ch) { bt.state = "Unconnected"; render(); }
+  }
+}
+async function openDevice(device) {
+  bt.device = device; bt.ch = null; bt.state = "Connecting…"; render();
+  if (!device._tpListen) {
+    device.addEventListener("gattserverdisconnected", () => { bt.ch = null; bt.state = "Unconnected"; render(); });
+    device._tpListen = true;
+  }
+  const server = await device.gatt.connect();
+  const services = await server.getPrimaryServices();
+  let found = null;
+  for (const s of services) {
+    let chars = [];
+    try { chars = await s.getCharacteristics(); } catch (e) { continue; }
+    const c = chars.find(c => c.properties.writeWithoutResponse || c.properties.write);
+    if (c) { found = c; break; }
+  }
+  if (!found) { device.gatt.disconnect(); throw new Error("karakteristik tulis tidak ditemukan (printer belum didukung)"); }
+  bt.ch = found; bt.state = device.name || "Printer"; render();
+}
+async function ensureConnected() {
+  if (bt.ch) return true;
+  if (bt.device) { try { await openDevice(bt.device); return true; } catch (e) {} }
+  return false;
+}
+function disconnectPrinter() { if (bt.device && bt.device.gatt.connected) bt.device.gatt.disconnect(); bt.device = null; bt.ch = null; bt.state = "Unconnected"; render(); }
+
+async function sendBytes(bytes, onProgress) {
+  const c = bt.ch;
+  if (!c) throw new Error("Printer belum terhubung");
+  const noResp = c.properties.writeWithoutResponse && typeof c.writeValueWithoutResponse === "function";
+  const size = Math.max(20, cfg.chunk);
+  for (let i = 0; i < bytes.length; i += size) {
+    const part = bytes.slice(i, i + size);
+    if (noResp) { await c.writeValueWithoutResponse(part); if (cfg.delay) await sleep(cfg.delay); }
+    else if (typeof c.writeValueWithResponse === "function") await c.writeValueWithResponse(part);
+    else await c.writeValue(part);
+    if (onProgress) onProgress(Math.min(1, (i + size) / bytes.length));
+  }
+}
+
+/* ================= Gambar & bitmap ================= */
+function mkCanvas(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+function whiteCanvas(w, h) { const c = mkCanvas(w, h), x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, w, h); return c; }
+function loadImage(src) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("Gambar tidak bisa dibuka")); im.src = src; });
+}
+async function blobToCanvas(blob) {
+  const url = URL.createObjectURL(blob);
+  try { const im = await loadImage(url); const c = whiteCanvas(im.naturalWidth, im.naturalHeight); c.getContext("2d").drawImage(im, 0, 0); return c; }
+  finally { URL.revokeObjectURL(url); }
+}
+async function renderPdfPage(pdf, index) {
+  const page = await pdf.getPage(index + 1);
+  const v1 = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: 2400 / Math.max(v1.width, v1.height) });
+  const c = whiteCanvas(Math.round(vp.width), Math.round(vp.height));
+  await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+  page.cleanup();
+  return c;
+}
+
+/** Kotak isi (bukan putih) dalam piksel */
+function contentRect(cv) {
+  const s = Math.min(1, 900 / Math.max(cv.width, cv.height));
+  const w = Math.max(1, Math.round(cv.width * s)), h = Math.max(1, Math.round(cv.height * s));
+  const t = whiteCanvas(w, h), x = t.getContext("2d");
+  x.drawImage(cv, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+    const i = (y * w + xx) * 4;
+    if (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114 < 200) {
+      if (xx < minX) minX = xx; if (xx > maxX) maxX = xx; if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) return null;
+  const m = 3, x0 = Math.max(0, Math.floor((minX - m) / s)), y0 = Math.max(0, Math.floor((minY - m) / s));
+  const x1 = Math.min(cv.width, Math.ceil((maxX + 1 + m) / s)), y1 = Math.min(cv.height, Math.ceil((maxY + 1 + m) / s));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** Fit to page: potong margin, auto-rotate, perbesar ke kertas */
+function fitToPage(cv) {
+  if (!cfg.autoFit) return cv;
+  const r = contentRect(cv) || { x: 0, y: 0, w: cv.width, h: cv.height };
+  const W = dots(), H = pageH();
+  const scale = (w, h) => H ? Math.min(W / w, H / h) : W / w;
+  const rotate = cfg.autoRotate && scale(r.h, r.w) > scale(r.w, r.h) * 1.05;
+  const w = rotate ? r.h : r.w, h = rotate ? r.w : r.h, s = scale(w, h);
+  const dw = w * s, dh = h * s;
+  const out = whiteCanvas(W, H || Math.ceil(dh)), x = out.getContext("2d");
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+  x.translate((W - dw) / 2 + dw / 2, (H ? (H - dh) / 2 : 0) + dh / 2);
+  if (rotate) x.rotate(Math.PI / 2);
+  const iw = rotate ? dh : dw, ih = rotate ? dw : dh;
+  x.drawImage(cv, r.x, r.y, r.w, r.h, -iw / 2, -ih / 2, iw, ih);
+  return out;
+}
+
+/** Ubah ke bitmap 1-bit (1 = hitam), MSB dulu */
+function rasterize(src, width, rot180, dither) {
+  const w = Math.floor(width / 8) * 8, h = Math.max(1, Math.round(w * src.height / src.width));
+  const c = whiteCanvas(w, h), x = c.getContext("2d");
+  x.imageSmoothingQuality = "high";
+  if (rot180) { x.translate(w, h); x.rotate(Math.PI); }
+  x.drawImage(src, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data, g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  const bpr = w / 8, bits = new Uint8Array(bpr * h);
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+    const i = y * w + xx, old = g[i], nv = old < 128 ? 0 : 255;
+    if (nv === 0) bits[y * bpr + (xx >> 3)] |= 0x80 >> (xx & 7);
+    if (dither) {
+      const e = old - nv;
+      if (xx + 1 < w) g[i + 1] += e * 7 / 16;
+      if (y + 1 < h) { if (xx > 0) g[i + w - 1] += e * 3 / 16; g[i + w] += e * 5 / 16; if (xx + 1 < w) g[i + w + 1] += e / 16; }
+    }
+  }
+  return { w, h, bpr, bits };
+}
+function bitmapPreview(b) {
+  const c = mkCanvas(b.w, b.h), x = c.getContext("2d"), im = x.createImageData(b.w, b.h);
+  for (let y = 0; y < b.h; y++) for (let xx = 0; xx < b.w; xx++) {
+    const v = (b.bits[y * b.bpr + (xx >> 3)] & (0x80 >> (xx & 7))) ? 0 : 255, i = (y * b.w + xx) * 4;
+    im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255;
+  }
+  x.putImageData(im, 0, 0);
+  return c.toDataURL("image/png");
+}
+
+/* ================= Perintah printer ================= */
+const enc = new TextEncoder();
+function concat(parts) {
+  const arr = parts.map(p => typeof p === "string" ? enc.encode(p) : (p instanceof Uint8Array ? p : Uint8Array.from(p)));
+  const out = new Uint8Array(arr.reduce((n, a) => n + a.length, 0)); let o = 0;
+  for (const a of arr) { out.set(a, o); o += a.length; }
+  return out;
+}
+function buildCommands(b) {
+  if (cfg.orderType === "TSPL") return tspl(b);
+  if (cfg.orderType === "CPCL") return cpcl(b);
+  return escpos(b);
+}
+function escpos(b) {
+  const heat = Math.min(255, 30 + cfg.density * 14), interval = Math.min(255, 2 + (10 - cfg.speed) * 20);
+  const p = [[0x1b, 0x40], [0x1b, 0x37, 7, heat, interval]];
+  for (let y = 0; y < b.h; y += 128) {
+    const rows = Math.min(128, b.h - y);
+    p.push([0x1d, 0x76, 0x30, 0, b.bpr & 255, b.bpr >> 8, rows & 255, rows >> 8]);
+    p.push(b.bits.subarray(y * b.bpr, (y + rows) * b.bpr));
+  }
+  p.push(cfg.paperType === "CONT" ? [0x1b, 0x64, 4] : [0x1d, 0x0c]);
+  if (cfg.crop === "CUT") p.push([0x1d, 0x56, 0x42, 0]);
+  return concat(p);
+}
+function tspl(b) {
+  let s = `SIZE ${cfg.paperWidth} mm,${Math.ceil(b.h / 8)} mm\r\n`;
+  s += cfg.paperType === "Gap" ? "GAP 2 mm,0 mm\r\n" : cfg.paperType === "Black" ? "BLINE 2 mm,0 mm\r\n" : "GAP 0 mm,0 mm\r\n";
+  s += `DENSITY ${Math.min(15, cfg.density)}\r\nSPEED ${Math.min(6, Math.max(1, cfg.speed))}\r\nDIRECTION 0\r\nREFERENCE 0,0\r\n`;
+  s += { TEAR: "SET CUTTER OFF\r\nSET PEEL OFF\r\nSET TEAR ON\r\n", CUT: "SET PEEL OFF\r\nSET CUTTER 1\r\n",
+    PEEL: "SET CUTTER OFF\r\nSET PEEL ON\r\n", NONE: "SET CUTTER OFF\r\nSET PEEL OFF\r\nSET TEAR OFF\r\n" }[cfg.crop];
+  s += `CLS\r\nBITMAP 0,0,${b.bpr},${b.h},0,`;
+  return concat([s, b.bits.map(v => (~v) & 0xff), "\r\nPRINT 1,1\r\n"]); // TSPL: bit 0 = hitam
+}
+function cpcl(b) {
+  const contrast = Math.min(3, Math.floor((cfg.density - 1) * 4 / 15)), speed = Math.min(5, Math.floor((cfg.speed - 1) * 6 / 10));
+  let s = `! 0 200 200 ${b.h} 1\r\nPAGE-WIDTH ${b.w}\r\nCONTRAST ${contrast}\r\nSPEED ${speed}\r\n`;
+  if (cfg.paperType === "Black") s += "BAR-SENSE\r\n";
+  s += `CG ${b.bpr} ${b.h} 0 0 `;
+  return concat([s, b.bits, "\r\n" + (cfg.paperType !== "CONT" ? "FORM\r\n" : "") + "PRINT\r\n"]);
+}
+
+/* ================= Render dokumen teks ================= */
+async function renderDoc(doc, W) {
+  const pad = 4, fs = doc.fontSize;
+  const font = `${doc.bold ? "bold " : ""}${fs}px ${doc.mono ? "Menlo, 'Courier New', monospace" : "-apple-system, Helvetica, Arial, sans-serif"}`;
+  const m = mkCanvas(1, 1).getContext("2d"); m.font = font;
+  const maxW = W - pad * 2, lines = [];
+  if (doc.text) for (const para of doc.text.split("\n")) {
+    let line = "";
+    for (const word of para.split(" ")) {
+      const test = line === "" ? word : line + " " + word;
+      if (m.measureText(test).width <= maxW) { line = test; continue; }
+      if (line !== "") lines.push(line);
+      line = "";
+      let w = word;
+      while (m.measureText(w).width > maxW && w.length > 1) {
+        let k = w.length; while (k > 1 && m.measureText(w.slice(0, k)).width > maxW) k--;
+        lines.push(w.slice(0, k)); w = w.slice(k);
+      }
+      line = w;
+    }
+    lines.push(line);
+  }
+  let im = null, imgH = 0;
+  if (doc.image) { try { im = await loadImage(doc.image); imgH = W * im.naturalHeight / im.naturalWidth; } catch (e) {} }
+  const lh = Math.round(fs * 1.25), gap = im && lines.length ? 8 : 0;
+  const H = Math.max(8, Math.ceil(imgH + gap + (lines.length ? lines.length * lh + pad * 2 : 0)));
+  const c = whiteCanvas(W, H), x = c.getContext("2d");
+  if (im) x.drawImage(im, 0, 0, W, imgH);
+  x.fillStyle = "#000"; x.font = font; x.textBaseline = "top";
+  x.textAlign = ["left", "center", "right"][doc.align || 0];
+  const tx = [pad, W / 2, W - pad][doc.align || 0];
+  lines.forEach((l, i) => x.fillText(l, tx, imgH + gap + pad + i * lh));
+  return c;
+}
+function testDoc() {
+  const t = `==== TEST PRINT ====\nOrder type : ${cfg.orderType}\nPaper      : ${cfg.paperType} ${cfg.paperWidth}mm\nDensity    : ${cfg.density}\nSpeed      : ${cfg.speed}\nCrop       : ${cfg.crop}\nInverted   : ${cfg.inverted ? "ON" : "OFF"}\n--------------------\nABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 !@#$%&*()\n====================`;
+  return { text: t, fontSize: cfg.paperWidth === 58 ? 18 : 24, align: 0, bold: false, mono: true, dither: false };
+}
+const newDoc = () => ({ id: uid(), title: "", text: "", fontSize: 24, align: 0, bold: false, mono: false, dither: false, image: null, updated: Date.now() });
+
+/** Gambar final untuk satu item antrian / dokumen */
+async function itemCanvas(item) {
+  if (item.kind === "pdf") return fitToPage(await renderPdfPage(item.pdf, item.page));
+  if (item.kind === "image") return fitToPage(await blobToCanvas(item.blob));
+  return renderDoc(item.doc, dots());
+}
+async function itemBitmap(item, dither) {
+  const d = item.kind === "doc" ? item.doc.dither : dither;
+  return rasterize(await itemCanvas(item), dots(), cfg.inverted, d);
+}
+async function printBitmap(b, onProgress) { await sendBytes(buildCommands(b), onProgress); }
+
+/* ================= Antrian cetak banyak ================= */
+const queue = { items: [], dither: false, printing: false, cancel: false, msg: "", done: 0, total: 0, frac: 0 };
+const thumbCache = new Map();
+let thumbChain = Promise.resolve();
+const cfgKey = () => JSON.stringify([cfg.paperWidth, cfg.paperType, cfg.labelHeight, cfg.autoFit, cfg.autoRotate, cfg.inverted, queue.dither]);
+
+async function importFiles(files) {
+  let added = 0;
+  for (const f of files) {
+    const name = f.name.replace(/\.[^.]+$/, "");
+    try {
+      if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
+        if (!window.pdfjsLib) { toast("Pustaka PDF gagal dimuat — periksa koneksi internet."); continue; }
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
+        for (let p = 0; p < pdf.numPages; p++) {
+          queue.items.push({ id: uid(), kind: "pdf", pdf, page: p, copies: 1,
+            name: pdf.numPages > 1 ? `${name} — hal. ${p + 1}/${pdf.numPages}` : name });
+          added++;
+        }
+      } else if (f.type.startsWith("image/")) {
+        queue.items.push({ id: uid(), kind: "image", blob: f, copies: 1, name }); added++;
+      }
+    } catch (e) { toast(`Gagal membuka ${f.name}`); }
+  }
+  queue.msg = "";
+  if (added) openPage({ type: "batch" }); else render();
+}
+function addDocsToQueue(list) {
+  list.forEach(d => queue.items.push({ id: uid(), kind: "doc", doc: d, copies: 1, name: d.title || firstLine(d) }));
+  queue.msg = ""; openPage({ type: "batch" });
+}
+const totalPages = () => queue.items.reduce((n, i) => n + i.copies, 0);
+
+function fillThumbs() {
+  document.querySelectorAll("img[data-thumb]").forEach(img => {
+    const item = queue.items.find(i => i.id === img.dataset.thumb); if (!item) return;
+    const key = item.id + cfgKey(), hit = thumbCache.get(key);
+    if (hit) { img.src = hit; return; }
+    thumbChain = thumbChain.then(async () => {
+      if (!document.body.contains(img)) return;
+      if (!thumbCache.has(key)) {
+        try { thumbCache.set(key, bitmapPreview(await itemBitmap(item, queue.dither))); } catch (e) { return; }
+      }
+      img.src = thumbCache.get(key);
+    });
+  });
+}
+
+async function printAll() {
+  if (queue.printing || !queue.items.length) return;
+  if (!(await ensureConnected())) { toast("Printer belum terhubung."); return; }
+  const jobs = queue.items.flatMap(i => Array(Math.max(1, i.copies)).fill(i));
+  Object.assign(queue, { printing: true, cancel: false, done: 0, total: jobs.length, frac: 0 });
+  let ok = 0, fail = 0;
+  render();
+  for (let i = 0; i < jobs.length; i++) {
+    if (queue.cancel) break;
+    queue.done = i; queue.frac = 0;
+    queue.msg = `Mencetak ${i + 1} dari ${jobs.length}: ${jobs[i].name}`; updateBar();
+    try {
+      const b = await itemBitmap(jobs[i], queue.dither);
+      if (!bt.ch && !(await ensureConnected())) throw new Error("terputus");
+      await printBitmap(b, f => { queue.frac = f; updateBar(); });
+      ok++;
+    } catch (e) { fail++; if (!bt.ch) break; }
+    if (i < jobs.length - 1) await sleep(400);
+  }
+  queue.printing = false;
+  queue.msg = queue.cancel ? `Dibatalkan — ${ok} halaman terkirim.` : fail ? `${ok} berhasil, ${fail} gagal.` : `Selesai — ${ok} halaman terkirim ✓`;
+  render();
+}
+function updateBar() {
+  const p = document.getElementById("qprog"), m = document.getElementById("qmsg");
+  if (p) p.value = (queue.done + queue.frac) / Math.max(1, queue.total);
+  if (m) m.textContent = queue.msg;
+}
+
+/* ================= UI ================= */
+const app = document.getElementById("app");
+let tab = "settings";
+let stack = [];        // halaman bertumpuk
+let sheet = null;      // action sheet
+let selecting = false, selected = new Set();
+let ed = null;         // state editor
+
+function openPage(p) { stack.push(p); render(); window.scrollTo(0, 0); }
+function closePage() { stack.pop(); render(); }
+function toast(t) {
+  const el = document.createElement("div"); el.className = "toast"; el.textContent = t;
+  document.body.appendChild(el); setTimeout(() => el.remove(), 2800);
+}
+const firstLine = d => (d.text || "").split("\n")[0] || "Tanpa judul";
+
+const ICON = {
+  home: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>',
+  printer: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M7 3h10v4H7zM4 8h16a2 2 0 0 1 2 2v6h-4v4H6v-4H2v-6a2 2 0 0 1 2-2zm4 7v3h8v-3z"/></svg>',
+  doc: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h8l6 6v14H6zm7 1.5V9h5.5zM8 12h8v1.5H8zm0 3h8v1.5H8z"/></svg>',
+  files: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M8 2h7l5 5v11H8zm6 1.5V8h4.5zM4 6h2v14h10v2H4z"/></svg>'
+};
+function nav(title, left = "", right = "") {
+  return `<div class="nav"><div class="side">${left}</div><h1>${esc(title)}</h1><div class="side r">${right}</div></div>`;
+}
+const seg = (k, opts, labels) => `<div class="seg">${opts.map((o, i) =>
+  `<button data-a="set" data-k="${k}" data-v="${o}" class="${cfg[k] === o ? "on" : ""}">${labels ? labels[i] : o}</button>`).join("")}</div>`;
+const stepper = (k, min, max, step = 1) => `<div class="stepper"><button data-a="step" data-k="${k}" data-d="${-step}" data-min="${min}" data-max="${max}">−</button><i></i><button data-a="step" data-k="${k}" data-d="${step}" data-min="${min}" data-max="${max}">+</button></div>`;
+const toggle = (k, disabled) => `<label class="sw"><input type="checkbox" data-in="cfg" data-k="${k}" ${cfg[k] ? "checked" : ""} ${disabled ? "disabled" : ""}><span></span></label>`;
+const btBanner = () => navigator.bluetooth ? "" : `<div class="banner">Browser ini tidak mendukung Bluetooth. Di iPhone, buka halaman ini di aplikasi <b>Bluefy</b> (gratis di App Store).</div>`;
+
+function settingsView() {
+  return nav("Print Settings", "", `<button class="dots" data-a="menu">•••</button>`) + btBanner() + `<div class="list">
+  <button class="row tap" data-a="page" data-p="conn"><span class="t">Connection Status</span><span class="v chev">${esc(bt.state)}</span></button>
+  <div class="row"><span class="t">Print Density</span><span class="num">${cfg.density}</span>${stepper("density", 1, 15)}</div>
+  <div class="row"><span class="t">Print Speed</span><span class="num">${cfg.speed}</span>${stepper("speed", 1, 10)}</div>
+  <div class="row"><span class="t">Inverted Printing</span>${toggle("inverted")}</div>
+  <div class="row"><span class="t">Paper Type</span>${seg("paperType", ["Gap", "CONT", "Black"])}</div>
+  <button class="row tap" data-a="page" data-p="crop"><span class="t">Crop Options</span><span class="v chev">${cfg.crop}</span></button>
+  <div class="row"><span class="t">Order type</span>${seg("orderType", ["TSPL", "ESC", "CPCL"])}</div>
+  <div class="row"><span class="t">Paper width</span>${seg("paperWidth", [58, 80], ["58mm", "80mm"])}</div>
+  ${cfg.paperType !== "CONT" ? `<div class="row"><span class="t">Label Height</span><span class="num">${cfg.labelHeight}mm</span>${stepper("labelHeight", 20, 300, 5)}</div>` : ""}
+  <div class="row"><span class="t">Auto Fit to Page</span>${toggle("autoFit")}</div>
+  <div class="row"><span class="t">Auto Rotate</span>${toggle("autoRotate", !cfg.autoFit)}</div>
+  </div>
+  <div class="sec">Lanjutan</div><div class="list">
+  <div class="row"><span class="t">Ukuran paket</span><span class="num">${cfg.chunk}</span>${stepper("chunk", 20, 500, 20)}</div>
+  <div class="row"><span class="t">Jeda paket (ms)</span><span class="num">${cfg.delay}</span>${stepper("delay", 0, 100, 5)}</div>
+  </div><div class="foot">Jika hasil cetak terpotong atau acak, kecilkan ukuran paket (mis. 100) dan naikkan jeda (mis. 30).</div>`;
+}
+
+function homeView() {
+  const docRows = docs.length ? docs.map(d => `<button class="row tap" data-a="doc" data-id="${d.id}">
+      ${selecting ? `<span class="check ${selected.has(d.id) ? "on" : ""}"></span>` : ""}${ICON.doc}
+      <span class="t"><div>${esc(d.title || firstLine(d))}</div><div style="font-size:13px;color:var(--sub)">${new Date(d.updated).toLocaleDateString("id-ID")}</div></span>
+      ${selecting ? "" : `<span class="chev"></span>`}</button>`).join("")
+    : `<div class="row empty">Belum ada dokumen. Ketuk + untuk membuat.</div>`;
+  return nav("Home") + btBanner() + `
+  <div class="sec">Printer</div><div class="list">
+    <button class="row tap" data-a="page" data-p="conn">${ICON.printer}<span class="t"><div style="font-weight:600">${esc(bt.state)}</div>
+      <div style="font-size:13px;color:var(--sub)">${cfg.orderType} • ${sizeText()} • ${cfg.paperType}</div></span><span class="chev"></span></button></div>
+  <div class="sec">Cetak banyak file</div><div class="list">
+    <button class="row tap" data-a="import">${ICON.files}<span class="t" style="color:var(--blue)">Impor PDF / gambar (bisa banyak)</span></button>
+    ${queue.items.length ? `<button class="row tap" data-a="page" data-p="batch"><span class="t">Buka antrian cetak (${queue.items.length})</span><span class="chev"></span></button>` : ""}
+  </div><div class="foot">Label pengiriman (Shopee, Tokopedia, dll.) otomatis dipotong margin putihnya dan di-fit ke kertas.</div>
+  <div class="sec"><span>Dokumen tersimpan</span>${docs.length ? `<button data-a="selmode">${selecting ? "Batal" : "Pilih"}</button>` : ""}</div>
+  <div class="list">${docRows}</div>
+  ${selecting ? `<div class="bar" style="bottom:calc(70px + env(safe-area-inset-bottom))"><button class="btn" data-a="printsel" ${selected.size ? "" : "disabled"}>Cetak terpilih (${selected.size})</button></div>` : ""}`;
+}
+
+function connPage() {
+  return nav("Connection", `<button data-a="back">‹ Kembali</button>`) + btBanner() + `<div class="list">
+    <div class="row"><span class="t">Status</span><span class="v">${esc(bt.state)}</span></div></div>
+    <div style="padding:20px 16px">
+      <button class="btn" data-a="connect">${bt.ch ? "Ganti printer" : "Cari & sambungkan printer"}</button>
+      ${bt.ch ? `<div style="height:10px"></div><button class="btn red" data-a="disconnect">Putuskan koneksi</button>` : ""}
+    </div><div class="foot">Nyalakan printer, ketuk tombol di atas, lalu pilih nama printer dari daftar. Printer harus mendukung Bluetooth LE.
+    Setelah halaman dimuat ulang, sambungkan lagi dari sini.</div>`;
+}
+function cropPage() {
+  return nav("Crop Options", `<button data-a="back">‹ Kembali</button>`) + `<div class="list">` +
+    Object.keys(CROPS).map(k => `<button class="row tap" data-a="setcrop" data-v="${k}"><span class="t"><div>${k}</div>
+      <div style="font-size:13px;color:var(--sub)">${CROPS[k]}</div></span>${cfg.crop === k ? `<span style="color:var(--blue);font-size:20px">✓</span>` : ""}</button>`).join("") + `</div>`;
+}
+
+function editorPage() {
+  const d = ed.doc;
+  return nav(d.title || "Dokumen baru", `<button data-a="back">Tutup</button>`, `<button data-a="savedoc" style="font-weight:600">Simpan</button>`) + `
+  <div class="sec">Judul</div><div class="list"><div class="row"><input type="text" data-in="ed" data-k="title" placeholder="Judul (opsional)" value="${esc(d.title)}"></div></div>
+  <div class="sec">Isi teks</div><div class="list"><div class="row"><textarea data-in="ed" data-k="text" class="${d.mono ? "mono" : ""}" placeholder="Ketik isi struk / label…">${esc(d.text)}</textarea></div></div>
+  <div class="sec">Format</div><div class="list">
+    <div class="row"><span class="t">Ukuran huruf</span><span class="num">${d.fontSize}</span><div class="stepper"><button data-a="edfs" data-d="-2">−</button><i></i><button data-a="edfs" data-d="2">+</button></div></div>
+    <div class="row"><span class="t">Rata</span><div class="seg">${["Kiri", "Tengah", "Kanan"].map((l, i) => `<button data-a="edalign" data-v="${i}" class="${d.align === i ? "on" : ""}">${l}</button>`).join("")}</div></div>
+    ${["bold:Tebal", "mono:Huruf monospace (struk)", "dither:Dithering (untuk foto)"].map(s => { const [k, l] = s.split(":");
+      return `<div class="row"><span class="t">${l}</span><label class="sw"><input type="checkbox" data-in="edb" data-k="${k}" ${d[k] ? "checked" : ""}><span></span></label></div>`; }).join("")}
+  </div>
+  <div class="sec">Gambar / logo</div><div class="list">
+    <button class="row tap" data-a="edimg" style="color:var(--blue)">${d.image ? "Ganti gambar" : "Pilih gambar"}</button>
+    ${d.image ? `<button class="row tap" data-a="edimgdel" style="color:#ff3b30">Hapus gambar</button>` : ""}</div>
+  <div class="sec">Pratinjau hasil cetak (${cfg.paperWidth}mm)</div><div class="prevbox"><img id="edprev" alt=""></div>
+  <div class="bar"><div class="msg" id="edmsg">${esc(ed.msg || "")}</div>${ed.printing ? `<progress id="edprog" value="0" max="1"></progress>` : ""}
+    <button class="btn" data-a="edprint" ${ed.printing ? "disabled" : ""}>${ed.printing ? "Mengirim…" : "Cetak"}</button></div>`;
+}
+let prevTimer = null;
+function schedulePreview() {
+  clearTimeout(prevTimer);
+  prevTimer = setTimeout(async () => {
+    if (!ed) return;
+    const b = rasterize(await renderDoc(ed.doc, dots()), dots(), cfg.inverted, ed.doc.dither);
+    const img = document.getElementById("edprev"); if (img) img.src = bitmapPreview(b);
+  }, 250);
+}
+
+function batchPage() {
+  const rows = queue.items.length ? queue.items.map((it, idx) => `<div class="row">
+      <img class="thumb" data-thumb="${it.id}" data-a="preview" data-id="${it.id}" alt="">
+      <div class="qi"><div class="n">${esc(it.name)}</div>
+        <div class="c"><button class="mini" data-a="qcopy" data-id="${it.id}" data-d="-1">−</button>${it.copies}× <button class="mini" data-a="qcopy" data-id="${it.id}" data-d="1">+</button>
+        <span style="flex:1"></span>
+        <button class="mini" data-a="qmove" data-i="${idx}" data-d="-1" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="mini" data-a="qmove" data-i="${idx}" data-d="1" ${idx === queue.items.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="mini del" data-a="qdel" data-id="${it.id}">✕</button></div></div></div>`).join("")
+    : `<div class="row empty">Belum ada file. Ketuk + untuk menambah PDF atau gambar.</div>`;
+  const canPrint = queue.items.length && !queue.printing;
+  return nav("Cetak Banyak", `<button data-a="back">Tutup</button>`, `<button data-a="import" style="font-size:28px">+</button>`) + `
+  <div class="list">
+    <div class="row"><span class="t">Auto Fit to Page</span>${toggle("autoFit")}</div>
+    <div class="row"><span class="t">Auto Rotate</span>${toggle("autoRotate", !cfg.autoFit)}</div>
+    <div class="row"><span class="t">Dithering (untuk foto)</span><label class="sw"><input type="checkbox" data-in="qdither" ${queue.dither ? "checked" : ""}><span></span></label></div>
+    <div class="row"><span class="t">Paper Type</span>${seg("paperType", ["Gap", "CONT", "Black"])}</div>
+    ${cfg.paperType !== "CONT" ? `<div class="row"><span class="t">Label Height</span><span class="num">${cfg.labelHeight}mm</span>${stepper("labelHeight", 20, 300, 5)}</div>` : ""}
+    <div class="row"><span class="t">Ukuran kertas</span><span class="v">${sizeText()}</span></div>
+  </div><div class="foot">Margin putih dipotong otomatis, lalu isi diputar &amp; diperbesar agar memenuhi kertas. File dicetak berurutan ke bawah, satu lembar per halaman.</div>
+  <div class="sec"><span>Antrian (${queue.items.length} item, ${totalPages()} lembar)</span>${queue.items.length && !queue.printing ? `<button data-a="qclear" style="color:#ff3b30">Kosongkan</button>` : ""}</div>
+  <div class="list">${rows}</div>
+  <div class="bar">${queue.printing ? `<progress id="qprog" value="0" max="1"></progress>` : ""}
+    <div class="msg" id="qmsg">${esc(queue.msg)}</div>
+    ${!bt.ch ? `<div class="msg warn">Printer belum terhubung — <a href="#" data-a="page" data-p="conn" style="color:var(--blue)">sambungkan</a></div>` : ""}
+    ${queue.printing ? `<button class="btn red" data-a="qcancel">Batalkan</button>`
+      : `<button class="btn" data-a="qprint" ${canPrint && bt.ch ? "" : "disabled"}>Cetak Semua (${totalPages()})</button>`}</div>`;
+}
+async function previewPage(p) {
+  const it = queue.items.find(i => i.id === p.id);
+  return nav(it ? it.name : "Pratinjau", `<button data-a="back">‹ Kembali</button>`) +
+    `<div class="prevbox" style="background:var(--bg)"><img id="bigprev" alt=""></div><div class="foot" style="text-align:center">Pratinjau hasil cetak • ${sizeText()}</div>`;
+}
+
+function tabbar() {
+  return `<div class="tabbar">
+    <button class="${tab === "home" ? "on" : ""}" data-a="tab" data-v="home">${ICON.home}Home</button>
+    <div class="plus"><button data-a="plus">+</button></div>
+    <button class="${tab === "settings" ? "on" : ""}" data-a="tab" data-v="settings">${ICON.gear}Settings</button></div>`;
+}
+function sheetHTML() {
+  if (!sheet) return "";
+  return `<div class="sheet-bg" data-a="sheetclose"><div class="sheet"><div class="grp">${sheet.map(b =>
+    `<button data-a="${b.a}" class="${b.cls || ""}">${b.label}</button>`).join("")}</div>
+    <div class="grp"><button class="b" data-a="sheetclose">Batal</button></div></div></div>`;
+}
+
+async function render() {
+  const top = stack[stack.length - 1];
+  let html;
+  if (!top) html = (tab === "home" ? homeView() : settingsView()) + tabbar();
+  else if (top.type === "conn") html = connPage();
+  else if (top.type === "crop") html = cropPage();
+  else if (top.type === "editor") html = editorPage();
+  else if (top.type === "batch") html = batchPage();
+  else if (top.type === "preview") html = await previewPage(top);
+  app.innerHTML = html + sheetHTML();
+  if (top && top.type === "editor") schedulePreview();
+  if (top && top.type === "batch") { fillThumbs(); updateBar(); }
+  if (top && top.type === "preview") {
+    const it = queue.items.find(i => i.id === top.id);
+    if (it) itemBitmap(it, queue.dither).then(b => { const im = document.getElementById("bigprev"); if (im) im.src = bitmapPreview(b); });
+  }
+}
+
+/* ================= Aksi ================= */
+const fileIn = document.getElementById("fileIn"), imgIn = document.getElementById("imgIn");
+fileIn.addEventListener("change", () => { const f = [...fileIn.files]; fileIn.value = ""; if (f.length) importFiles(f); });
+imgIn.addEventListener("change", async () => {
+  const f = imgIn.files[0]; imgIn.value = ""; if (!f || !ed) return;
+  const c = await blobToCanvas(f), s = Math.min(1, 800 / c.width), o = whiteCanvas(Math.round(c.width * s), Math.round(c.height * s));
+  o.getContext("2d").drawImage(c, 0, 0, o.width, o.height);
+  ed.doc.image = o.toDataURL("image/jpeg", 0.85); ed.doc.dither = true; render();
+});
+
+async function printDocNow(doc, setMsg, onProgress) {
+  if (!(await ensureConnected())) { setMsg("Printer belum terhubung. Buka Settings › Connection Status."); return false; }
+  const b = rasterize(await renderDoc(doc, dots()), dots(), cfg.inverted, doc.dither);
+  await printBitmap(b, onProgress);
+  return true;
+}
+
+const actions = {
+  tab: el => { tab = el.dataset.v; selecting = false; selected.clear(); render(); },
+  page: el => openPage({ type: el.dataset.p }),
+  back: () => { if (stack[stack.length - 1]?.type === "editor") ed = null; closePage(); },
+  menu: () => { sheet = [{ a: "testprint", label: "Cetak halaman uji" }, { a: "reset", label: "Kembalikan ke default", cls: "red" }]; render(); },
+  plus: () => { sheet = [{ a: "newdoc", label: "Dokumen teks baru" }, { a: "import", label: "Impor PDF / gambar (banyak)" }]; render(); },
+  sheetclose: (el, e) => { if (e.target === el || el.tagName === "BUTTON") { sheet = null; render(); } },
+  set: el => { const v = el.dataset.v; cfg[el.dataset.k] = isNaN(+v) ? v : +v; saveCfg(); render(); },
+  step: el => { const k = el.dataset.k; cfg[k] = Math.max(+el.dataset.min, Math.min(+el.dataset.max, cfg[k] + +el.dataset.d)); saveCfg(); render(); },
+  setcrop: el => { cfg.crop = el.dataset.v; saveCfg(); closePage(); },
+  connect: () => connectPrinter(),
+  disconnect: () => disconnectPrinter(),
+  testprint: async () => {
+    sheet = null; render();
+    try { if (await printDocNow(testDoc(), toast)) toast("Halaman uji terkirim ke printer."); }
+    catch (e) { toast("Gagal mengirim: " + e.message); }
+  },
+  reset: () => { sheet = null; cfg = Object.assign({}, DEF); saveCfg(); render(); toast("Pengaturan dikembalikan ke default."); },
+  import: () => { sheet = null; fileIn.click(); render(); },
+  newdoc: () => { sheet = null; ed = { doc: newDoc(), msg: "" }; openPage({ type: "editor" }); },
+  doc: el => {
+    const id = el.dataset.id;
+    if (selecting) { selected.has(id) ? selected.delete(id) : selected.add(id); render(); return; }
+    const d = docs.find(x => x.id === id); if (!d) return;
+    ed = { doc: JSON.parse(JSON.stringify(d)), msg: "" }; openPage({ type: "editor" });
+  },
+  selmode: () => { selecting = !selecting; selected.clear(); render(); },
+  printsel: () => { const list = docs.filter(d => selected.has(d.id)); selecting = false; selected.clear(); addDocsToQueue(list); },
+  savedoc: () => {
+    ed.doc.updated = Date.now();
+    const i = docs.findIndex(d => d.id === ed.doc.id);
+    if (i >= 0) docs[i] = ed.doc; else docs.unshift(ed.doc);
+    docs.sort((a, b) => b.updated - a.updated); saveDocs();
+    ed = null; tab = "home"; closePage(); toast("Dokumen disimpan.");
+  },
+  edfs: el => { ed.doc.fontSize = Math.max(12, Math.min(72, ed.doc.fontSize + +el.dataset.d)); render(); },
+  edalign: el => { ed.doc.align = +el.dataset.v; render(); },
+  edimg: () => imgIn.click(),
+  edimgdel: () => { ed.doc.image = null; render(); },
+  edprint: async () => {
+    ed.printing = true; ed.msg = ""; render();
+    const setMsg = t => { if (ed) ed.msg = t; };
+    try {
+      const ok = await printDocNow(ed.doc, setMsg, f => { const p = document.getElementById("edprog"); if (p) p.value = f; });
+      if (ok) setMsg("Terkirim ke printer ✓");
+    } catch (e) { setMsg("Gagal mengirim: " + e.message); }
+    if (ed) { ed.printing = false; render(); }
+  },
+  preview: el => openPage({ type: "preview", id: el.dataset.id }),
+  qcopy: el => { const it = queue.items.find(i => i.id === el.dataset.id); if (it) it.copies = Math.max(1, Math.min(99, it.copies + +el.dataset.d)); render(); },
+  qmove: el => { const i = +el.dataset.i, j = i + +el.dataset.d; if (j < 0 || j >= queue.items.length) return;
+    [queue.items[i], queue.items[j]] = [queue.items[j], queue.items[i]]; render(); },
+  qdel: el => { queue.items = queue.items.filter(i => i.id !== el.dataset.id); render(); },
+  qclear: () => { queue.items = []; thumbCache.clear(); queue.msg = ""; render(); },
+  qprint: () => printAll(),
+  qcancel: () => { queue.cancel = true; queue.msg = "Membatalkan setelah halaman ini…"; updateBar(); }
+};
+app.addEventListener("click", e => {
+  const el = e.target.closest("[data-a]"); if (!el || el.disabled) return;
+  if (el.tagName === "A") e.preventDefault();
+  const fn = actions[el.dataset.a]; if (fn) fn(el, e);
+});
+app.addEventListener("input", e => {
+  const el = e.target;
+  if (el.dataset.in === "ed" && ed) { ed.doc[el.dataset.k] = el.value; schedulePreview(); }
+});
+app.addEventListener("change", e => {
+  const el = e.target, k = el.dataset.k;
+  if (el.dataset.in === "cfg") { cfg[k] = el.checked; saveCfg(); render(); }
+  else if (el.dataset.in === "edb" && ed) { ed.doc[k] = el.checked; render(); }
+  else if (el.dataset.in === "qdither") { queue.dither = el.checked; render(); }
+});
+render();
+</script>
+</body>
+</html>
