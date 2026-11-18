@@ -95,7 +95,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
 };
 const DEF = { density: 8, speed: 8, inverted: false, paperType: "CONT", crop: "TEAR", orderType: "ESC",
-  paperWidth: 80, autoFit: true, autoRotate: true, labelHeight: 100, chunk: 180, delay: 15, svc: "", chr: "" };
+  paperWidth: 80, autoFit: true, autoRotate: true, labelHeight: 100, chunk: 180, delay: 15, svc: "", chr: "", feedMM: 50 };
 let cfg = Object.assign({}, DEF, store.get("tp.cfg", {}));
 const saveCfg = () => store.set("tp.cfg", cfg);
 let docs = store.get("tp.docs", []);
@@ -386,7 +386,11 @@ function escpos(b) {
     p.push([0x1d, 0x76, 0x30, 0, b.bpr & 255, b.bpr >> 8, rows & 255, rows >> 8]);
     p.push(b.bits.subarray(y * b.bpr, (y + rows) * b.bpr));
   }
-  p.push(cfg.paperType === "CONT" ? [0x1b, 0x64, 4] : [0x1d, 0x0c]);
+  if (cfg.paperType === "CONT") {
+    // ESC J n: majukan kertas n titik (8 titik = 1 mm). Dipecah per 200 titik.
+    let feed = Math.max(0, Math.round(cfg.feedMM * 8));
+    while (feed > 0) { const n = Math.min(200, feed); p.push([0x1b, 0x4a, n]); feed -= n; }
+  } else p.push([0x1d, 0x0c]);
   if (cfg.crop === "CUT") p.push([0x1d, 0x56, 0x42, 0]);
   return concat(p);
 }
@@ -397,14 +401,16 @@ function tspl(b) {
   s += { TEAR: "SET CUTTER OFF\r\nSET PEEL OFF\r\nSET TEAR ON\r\n", CUT: "SET PEEL OFF\r\nSET CUTTER 1\r\n",
     PEEL: "SET CUTTER OFF\r\nSET PEEL ON\r\n", NONE: "SET CUTTER OFF\r\nSET PEEL OFF\r\nSET TEAR OFF\r\n" }[cfg.crop];
   s += `CLS\r\nBITMAP 0,0,${b.bpr},${b.h},0,`;
-  return concat([s, b.bits.map(v => (~v) & 0xff), "\r\nPRINT 1,1\r\n"]); // TSPL: bit 0 = hitam
+  const feed = cfg.paperType === "CONT" && cfg.feedMM > 0 ? `FEED ${Math.round(cfg.feedMM * 8)}\r\n` : "";
+  return concat([s, b.bits.map(v => (~v) & 0xff), "\r\nPRINT 1,1\r\n" + feed]); // TSPL: bit 0 = hitam
 }
 function cpcl(b) {
   const contrast = Math.min(3, Math.floor((cfg.density - 1) * 4 / 15)), speed = Math.min(5, Math.floor((cfg.speed - 1) * 6 / 10));
   let s = `! 0 200 200 ${b.h} 1\r\nPAGE-WIDTH ${b.w}\r\nCONTRAST ${contrast}\r\nSPEED ${speed}\r\n`;
   if (cfg.paperType === "Black") s += "BAR-SENSE\r\n";
   s += `CG ${b.bpr} ${b.h} 0 0 `;
-  return concat([s, b.bits, "\r\n" + (cfg.paperType !== "CONT" ? "FORM\r\n" : "") + "PRINT\r\n"]);
+  const post = cfg.paperType === "CONT" && cfg.feedMM > 0 ? `POSTFEED ${Math.round(cfg.feedMM * 8)}\r\n` : "";
+  return concat([s, b.bits, "\r\n" + post + (cfg.paperType !== "CONT" ? "FORM\r\n" : "") + "PRINT\r\n"]);
 }
 
 /* ================= Render dokumen teks ================= */
@@ -578,6 +584,7 @@ function settingsView() {
   <button class="row tap" data-a="page" data-p="crop"><span class="t">Crop Options</span><span class="v chev">${cfg.crop}</span></button>
   <div class="row"><span class="t">Order type</span>${seg("orderType", ["TSPL", "ESC", "CPCL"])}</div>
   <div class="row"><span class="t">Paper width</span>${seg("paperWidth", [58, 80], ["58mm", "80mm"])}</div>
+  ${cfg.paperType === "CONT" ? `<div class="row"><span class="t">Jarak antar file</span><span class="num">${cfg.feedMM / 10} cm</span>${stepper("feedMM", 0, 150, 5)}</div>` : ""}
   ${cfg.paperType !== "CONT" ? `<div class="row"><span class="t">Label Height</span><span class="num">${cfg.labelHeight}mm</span>${stepper("labelHeight", 20, 300, 5)}</div>` : ""}
   <div class="row"><span class="t">Auto Fit to Page</span>${toggle("autoFit")}</div>
   <div class="row"><span class="t">Auto Rotate</span>${toggle("autoRotate", !cfg.autoFit)}</div>
@@ -679,6 +686,7 @@ function batchPage() {
     <div class="row"><span class="t">Auto Rotate</span>${toggle("autoRotate", !cfg.autoFit)}</div>
     <div class="row"><span class="t">Dithering (untuk foto)</span><label class="sw"><input type="checkbox" data-in="qdither" ${queue.dither ? "checked" : ""}><span></span></label></div>
     <div class="row"><span class="t">Paper Type</span>${seg("paperType", ["Gap", "CONT", "Black"])}</div>
+  ${cfg.paperType === "CONT" ? `<div class="row"><span class="t">Jarak antar file</span><span class="num">${cfg.feedMM / 10} cm</span>${stepper("feedMM", 0, 150, 5)}</div>` : ""}
     ${cfg.paperType !== "CONT" ? `<div class="row"><span class="t">Label Height</span><span class="num">${cfg.labelHeight}mm</span>${stepper("labelHeight", 20, 300, 5)}</div>` : ""}
     <div class="row"><span class="t">Ukuran kertas</span><span class="v">${sizeText()}</span></div>
   </div><div class="foot">Margin putih dipotong otomatis, lalu isi diputar &amp; diperbesar agar memenuhi kertas. File dicetak berurutan ke bawah, satu lembar per halaman.</div>
