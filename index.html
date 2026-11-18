@@ -142,26 +142,62 @@ const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => se
 const short = u => String(u).replace(/^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/i, "0x$1");
 const props = c => ["write", "writeWithoutResponse", "notify", "read"].filter(k => c.properties[k]).join(",");
 
+const full = u => typeof u === "number" ? `0000${u.toString(16).padStart(4, "0")}-0000-1000-8000-00805f9b34fb` : String(u).toLowerCase();
+function errText(e) {
+  if (!e) return "error kosong";
+  if (typeof e === "string") return e;
+  const parts = [e.name, e.message, e.code].filter(x => x !== undefined && x !== "");
+  if (parts.length) return parts.join(" ");
+  try { return JSON.stringify(e) || String(e); } catch (_) { return String(e); }
+}
+// Beberapa cara memanggil requestDevice; browser berbeda menerima format berbeda.
+function scanModes() {
+  const custom = normUuid(cfg.svc);
+  const short16 = [...new Set([...(custom ? [custom] : []), ...KNOWN_SERVICES].map(full))];
+  const long = [...new Set([...short16, ...allServices().map(full)])];
+  return [
+    { name: "nama printer RPP… (RPP02N)", opt: { filters: [{ namePrefix: "RPP" }], optionalServices: short16 } },
+    { name: "semua perangkat + daftar service lengkap", opt: { acceptAllDevices: true, optionalServices: long } },
+    { name: "semua perangkat + daftar service pendek", opt: { acceptAllDevices: true, optionalServices: short16 } },
+    { name: "filter service printer", opt: { filters: short16.map(u => ({ services: [u] })), optionalServices: long } },
+    { name: "semua perangkat tanpa daftar service", opt: { acceptAllDevices: true } }
+  ];
+}
+let scanMode = 0;
+
 async function connectPrinter() {
   if (!navigator.bluetooth) { toast("Browser ini tidak mendukung Bluetooth. Buka halaman ini di aplikasi Bluefy."); blog("navigator.bluetooth tidak ada — bukan di Bluefy?"); return; }
-  bt.log = []; blog("Membuka daftar perangkat…");
-  let device;
-  try {
-    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: allServices() });
-  } catch (e) {
-    blog(`requestDevice gagal: ${e.name} ${e.message}`);
-    if (e.name === "TypeError" || e.name === "SecurityError") {
-      // Sebagian browser menolak daftar panjang → coba daftar pendek
-      try { device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: KNOWN_SERVICES }); }
-      catch (e2) { blog(`requestDevice (daftar pendek) gagal: ${e2.name} ${e2.message}`); }
+  bt.log = [];
+  const modes = scanModes();
+  let device = null;
+  for (let k = 0; k < modes.length && !device; k++) {
+    const m = modes[(scanMode + k) % modes.length];
+    blog(`Membuka daftar perangkat (mode: ${m.name})…`);
+    try {
+      device = await navigator.bluetooth.requestDevice(m.opt);
+      scanMode = (scanMode + k) % modes.length;
+    } catch (e) {
+      const t = errText(e);
+      blog(`  gagal: ${t}`);
+      if (/NotFoundError|cancel/i.test(t) && !/undefined|kosong/i.test(t)) {
+        // pengguna menutup daftar tanpa memilih, atau tidak ada perangkat
+        blog("Daftar ditutup / tidak ada perangkat dipilih.");
+        bt.state = "Unconnected"; render(); return;
+      }
     }
-    if (!device) { if (e.name !== "NotFoundError") toast("Gagal: " + e.message); bt.state = "Unconnected"; render(); return; }
   }
-  blog(`Dipilih: "${device.name || "(tanpa nama)"}" id=${device.id}`);
+  if (!device) {
+    scanMode = (scanMode + 1) % modes.length;
+    try { if (navigator.bluetooth.getAvailability) blog("Bluetooth tersedia: " + await navigator.bluetooth.getAvailability()); } catch (_) {}
+    blog("Semua mode gagal. Cek izin Bluetooth Bluefy di Pengaturan iPhone, lalu ketuk tombol lagi.");
+    toast("Gagal membuka daftar printer. Lihat log.");
+    bt.state = "Unconnected"; render(); return;
+  }
+  blog(`Dipilih: "${device.name || "(tanpa nama)"}"`);
   for (let attempt = 1; attempt <= 3; attempt++) {
     try { await openDevice(device); return; }
     catch (e) {
-      blog(`Percobaan ${attempt} gagal: ${e.message}`);
+      blog(`Percobaan ${attempt} gagal: ${errText(e)}`);
       try { device.gatt.disconnect(); } catch (_) {}
       if (attempt < 3) await sleep(800);
     }
@@ -181,11 +217,11 @@ async function openDevice(device) {
   blog("GATT tersambung, mencari service…");
   let services = [];
   try { services = await withTimeout(server.getPrimaryServices(), 10000, "getPrimaryServices"); }
-  catch (e) { blog(`getPrimaryServices: ${e.message}`); }
+  catch (e) { blog(`getPrimaryServices: ${errText(e)}`); }
   if (!services.length) {
     blog("Mencoba service satu per satu…");
     const list = [normUuid(cfg.svc), ...KNOWN_SERVICES].filter(Boolean);
-    for (const u of list) { try { services.push(await server.getPrimaryService(u)); } catch (e) {} }
+    for (const u of list) { try { services.push(await server.getPrimaryService(full(u))); } catch (e) {} }
   }
   blog(`Service ditemukan: ${services.map(x => short(x.uuid)).join(", ") || "(tidak ada)"}`);
 
@@ -584,8 +620,10 @@ function connPage() {
     <div class="foot" style="line-height:1.5">
       1. <b>Tutup aplikasi label lain</b> (geser ke atas dari app switcher) — printer Bluetooth LE hanya bisa tersambung ke satu aplikasi.<br>
       2. Jika printer ada di <b>Pengaturan iPhone › Bluetooth</b> dan berstatus "Connected", ketuk ⓘ › <b>Lupakan Perangkat Ini</b>.<br>
-      3. Matikan lalu nyalakan printer, tunggu lampu biru berkedip, baru ketuk tombol di atas.<br>
-      4. Pilih nama printer di daftar (biasanya nama model, mis. "Printer_XXXX", "MPT-II", "GP-…", "XP-…").</div>
+      3. Pastikan <b>Pengaturan iPhone › Privasi &amp; Keamanan › Bluetooth › Bluefy</b> dalam keadaan aktif.<br>
+      4. Matikan lalu nyalakan printer, tunggu lampu biru berkedip, baru ketuk tombol di atas.<br>
+      5. Pilih nama printer di daftar (mis. <b>RPP02N</b>, "MPT-II", "GP-…", "XP-…").<br>
+      6. Untuk RPP02N: <b>Order type ESC</b>, <b>Paper width 58mm</b>, <b>Paper Type CONT</b>.</div>
     <div class="sec"><span>Log koneksi</span><button data-a="copylog">Salin</button></div>
     <pre id="btlog" style="margin:0 16px;background:#fff;border-radius:10px;padding:10px;font-size:11px;white-space:pre-wrap;max-height:300px;overflow:auto">${esc(bt.log.join("\n") || "Belum ada aktivitas.")}</pre>
     <div class="foot">Jika masih gagal, kirim isi log ini ke saya.</div>`;
