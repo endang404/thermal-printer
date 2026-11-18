@@ -95,7 +95,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
 };
 const DEF = { density: 8, speed: 8, inverted: false, paperType: "CONT", crop: "TEAR", orderType: "ESC",
-  paperWidth: 80, autoFit: true, autoRotate: true, labelHeight: 100, chunk: 180, delay: 15 };
+  paperWidth: 80, autoFit: true, autoRotate: true, labelHeight: 100, chunk: 180, delay: 15, svc: "", chr: "" };
 let cfg = Object.assign({}, DEF, store.get("tp.cfg", {}));
 const saveCfg = () => store.set("tp.cfg", cfg);
 let docs = store.get("tp.docs", []);
@@ -111,58 +111,132 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* ================= Bluetooth ================= */
-const SERVICES = [0x18f0, 0xff00, 0xffe0, 0xfee7, 0xae30, 0xff10, 0xfff0,
-  "e7810a71-73ae-499d-8c15-faa9aef0c3f2", "49535343-fe7d-4ae5-8fa9-9fafd205e455"];
-const bt = { device: null, ch: null, state: "Unconnected" };
+// Daftar service yang diminta izin aksesnya. Web Bluetooth hanya bisa membuka service yang ada di daftar ini,
+// jadi dibuat lebar: semua 0xFFxx + UUID printer thermal yang umum.
+const KNOWN_SERVICES = [0x18f0, 0x18f1, 0xfee7, 0xfee9, 0xe0ff, 0xae00, 0xae30, 0xae3a, 0xaf30, 0xab00, 0x1950, 0xfd00,
+  0xff00, 0xffe0, 0xfff0, 0xff10, 0xffb0, 0xffc0, 0xffd0,
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2", "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+  "6e400001-b5a3-f393-e0a9-e50e24dcca9e", "38eb4a80-c570-11e3-9507-0002a5d5c51b",
+  "0000ae30-0000-1000-8000-00805f9b34fb", "0000ff00-0000-1000-8000-00805f9b34fb"];
+function normUuid(v) {
+  v = String(v || "").trim().toLowerCase();
+  if (!v) return null;
+  if (/^(0x)?[0-9a-f]{4}$/.test(v)) return parseInt(v.replace(/^0x/, ""), 16);
+  if (/^[0-9a-f]{8}$/.test(v)) return parseInt(v, 16);
+  return v;
+}
+function allServices() {
+  const set = new Set(KNOWN_SERVICES);
+  for (let u = 0xff00; u <= 0xffff; u++) if (u !== 0xfffd) set.add(u);
+  const c = normUuid(cfg.svc); if (c) set.add(c);
+  return [...set];
+}
+const bt = { device: null, ch: null, state: "Unconnected", log: [], noResp: false };
 const btReady = () => !!bt.ch;
+function blog(msg) {
+  const t = new Date().toLocaleTimeString("id-ID", { hour12: false });
+  bt.log.push(`${t}  ${msg}`); if (bt.log.length > 200) bt.log.shift();
+  const el = document.getElementById("btlog"); if (el) { el.textContent = bt.log.join("\n"); el.scrollTop = el.scrollHeight; }
+}
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + " timeout")), ms))]);
+const short = u => String(u).replace(/^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/i, "0x$1");
+const props = c => ["write", "writeWithoutResponse", "notify", "read"].filter(k => c.properties[k]).join(",");
 
 async function connectPrinter() {
-  if (!navigator.bluetooth) { toast("Browser ini tidak mendukung Bluetooth. Buka halaman ini di aplikasi Bluefy."); return; }
+  if (!navigator.bluetooth) { toast("Browser ini tidak mendukung Bluetooth. Buka halaman ini di aplikasi Bluefy."); blog("navigator.bluetooth tidak ada — bukan di Bluefy?"); return; }
+  bt.log = []; blog("Membuka daftar perangkat…");
+  let device;
   try {
-    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
-    await openDevice(device);
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: allServices() });
   } catch (e) {
-    if (e.name !== "NotFoundError") toast("Gagal tersambung: " + e.message);
-    if (!bt.ch) { bt.state = "Unconnected"; render(); }
+    blog(`requestDevice gagal: ${e.name} ${e.message}`);
+    if (e.name === "TypeError" || e.name === "SecurityError") {
+      // Sebagian browser menolak daftar panjang → coba daftar pendek
+      try { device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: KNOWN_SERVICES }); }
+      catch (e2) { blog(`requestDevice (daftar pendek) gagal: ${e2.name} ${e2.message}`); }
+    }
+    if (!device) { if (e.name !== "NotFoundError") toast("Gagal: " + e.message); bt.state = "Unconnected"; render(); return; }
   }
+  blog(`Dipilih: "${device.name || "(tanpa nama)"}" id=${device.id}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { await openDevice(device); return; }
+    catch (e) {
+      blog(`Percobaan ${attempt} gagal: ${e.message}`);
+      try { device.gatt.disconnect(); } catch (_) {}
+      if (attempt < 3) await sleep(800);
+    }
+  }
+  bt.ch = null; bt.state = "Unconnected"; render();
+  toast("Gagal tersambung. Lihat log di halaman Connection.");
 }
+
 async function openDevice(device) {
   bt.device = device; bt.ch = null; bt.state = "Connecting…"; render();
   if (!device._tpListen) {
-    device.addEventListener("gattserverdisconnected", () => { bt.ch = null; bt.state = "Unconnected"; render(); });
+    device.addEventListener("gattserverdisconnected", () => { blog("Printer terputus"); bt.ch = null; bt.state = "Unconnected"; render(); });
     device._tpListen = true;
   }
-  const server = await device.gatt.connect();
-  const services = await server.getPrimaryServices();
-  let found = null;
-  for (const s of services) {
-    let chars = [];
-    try { chars = await s.getCharacteristics(); } catch (e) { continue; }
-    const c = chars.find(c => c.properties.writeWithoutResponse || c.properties.write);
-    if (c) { found = c; break; }
+  blog("Menghubungkan GATT…");
+  const server = await withTimeout(device.gatt.connect(), 15000, "GATT connect");
+  blog("GATT tersambung, mencari service…");
+  let services = [];
+  try { services = await withTimeout(server.getPrimaryServices(), 10000, "getPrimaryServices"); }
+  catch (e) { blog(`getPrimaryServices: ${e.message}`); }
+  if (!services.length) {
+    blog("Mencoba service satu per satu…");
+    const list = [normUuid(cfg.svc), ...KNOWN_SERVICES].filter(Boolean);
+    for (const u of list) { try { services.push(await server.getPrimaryService(u)); } catch (e) {} }
   }
-  if (!found) { device.gatt.disconnect(); throw new Error("karakteristik tulis tidak ditemukan (printer belum didukung)"); }
-  bt.ch = found; bt.state = device.name || "Printer"; render();
+  blog(`Service ditemukan: ${services.map(x => short(x.uuid)).join(", ") || "(tidak ada)"}`);
+
+  const wantChar = normUuid(cfg.chr);
+  const wantStr = wantChar == null ? null : (typeof wantChar === "number" ? wantChar.toString(16).padStart(4, "0") : wantChar);
+  let best = null, bestScore = -1;
+  for (const sv of services) {
+    let chars = [];
+    try { chars = await sv.getCharacteristics(); } catch (e) { blog(`  ${short(sv.uuid)}: getCharacteristics gagal (${e.message})`); continue; }
+    for (const c of chars) {
+      blog(`  ${short(sv.uuid)} › ${short(c.uuid)} [${props(c)}]`);
+      if (!(c.properties.write || c.properties.writeWithoutResponse)) continue;
+      let score = 1;
+      if (c.properties.writeWithoutResponse) score += 1;
+      if (KNOWN_SERVICES.some(k => short(sv.uuid) === short(typeof k === "number" ? "0000" + k.toString(16).padStart(4, "0") + "-0000-1000-8000-00805f9b34fb" : k))) score += 2;
+      if (wantStr && c.uuid.toLowerCase().includes(wantStr)) score += 100;
+      if (score > bestScore) { best = c; bestScore = score; }
+    }
+  }
+  if (!best) throw new Error("tidak ada karakteristik yang bisa ditulisi");
+  bt.ch = best;
+  bt.noResp = best.properties.writeWithoutResponse && typeof best.writeValueWithoutResponse === "function";
+  bt.state = device.name || "Printer";
+  blog(`✓ Siap mencetak lewat ${short(best.service.uuid)} › ${short(best.uuid)} (${bt.noResp ? "tanpa respons" : "dengan respons"})`);
+  render();
 }
 async function ensureConnected() {
-  if (bt.ch) return true;
-  if (bt.device) { try { await openDevice(bt.device); return true; } catch (e) {} }
+  if (bt.ch && bt.device && bt.device.gatt.connected) return true;
+  if (bt.device) { try { await openDevice(bt.device); return true; } catch (e) { blog("Sambung ulang gagal: " + e.message); } }
   return false;
 }
 function disconnectPrinter() { if (bt.device && bt.device.gatt.connected) bt.device.gatt.disconnect(); bt.device = null; bt.ch = null; bt.state = "Unconnected"; render(); }
 
-async function sendBytes(bytes, onProgress) {
+async function writeChunk(part) {
   const c = bt.ch;
-  if (!c) throw new Error("Printer belum terhubung");
-  const noResp = c.properties.writeWithoutResponse && typeof c.writeValueWithoutResponse === "function";
+  if (bt.noResp) {
+    try { await c.writeValueWithoutResponse(part); if (cfg.delay) await sleep(cfg.delay); return; }
+    catch (e) { blog("writeWithoutResponse gagal, beralih ke write biasa: " + e.message); bt.noResp = false; }
+  }
+  if (typeof c.writeValueWithResponse === "function" && c.properties.write) await c.writeValueWithResponse(part);
+  else await c.writeValue(part);
+}
+async function sendBytes(bytes, onProgress) {
+  if (!bt.ch) throw new Error("Printer belum terhubung");
   const size = Math.max(20, cfg.chunk);
+  blog(`Mengirim ${bytes.length} byte (paket ${size})…`);
   for (let i = 0; i < bytes.length; i += size) {
-    const part = bytes.slice(i, i + size);
-    if (noResp) { await c.writeValueWithoutResponse(part); if (cfg.delay) await sleep(cfg.delay); }
-    else if (typeof c.writeValueWithResponse === "function") await c.writeValueWithResponse(part);
-    else await c.writeValue(part);
+    await writeChunk(bytes.slice(i, i + size));
     if (onProgress) onProgress(Math.min(1, (i + size) / bytes.length));
   }
+  blog("Selesai mengirim");
 }
 
 /* ================= Gambar & bitmap ================= */
@@ -475,7 +549,9 @@ function settingsView() {
   <div class="sec">Lanjutan</div><div class="list">
   <div class="row"><span class="t">Ukuran paket</span><span class="num">${cfg.chunk}</span>${stepper("chunk", 20, 500, 20)}</div>
   <div class="row"><span class="t">Jeda paket (ms)</span><span class="num">${cfg.delay}</span>${stepper("delay", 0, 100, 5)}</div>
-  </div><div class="foot">Jika hasil cetak terpotong atau acak, kecilkan ukuran paket (mis. 100) dan naikkan jeda (mis. 30).</div>`;
+  <div class="row"><span class="t">Service UUID</span><input type="text" data-in="cfgtext" data-k="svc" value="${esc(cfg.svc)}" placeholder="otomatis" style="text-align:right;max-width:55%;color:var(--sub)"></div>
+  <div class="row"><span class="t">Characteristic UUID</span><input type="text" data-in="cfgtext" data-k="chr" value="${esc(cfg.chr)}" placeholder="otomatis" style="text-align:right;max-width:55%;color:var(--sub)"></div>
+  </div><div class="foot">Jika hasil cetak terpotong atau acak, kecilkan ukuran paket (mis. 100) dan naikkan jeda (mis. 30). Service/Characteristic UUID biarkan kosong kecuali disarankan (bisa dilihat dengan aplikasi nRF Connect).</div>`;
 }
 
 function homeView() {
@@ -500,11 +576,19 @@ function homeView() {
 function connPage() {
   return nav("Connection", `<button data-a="back">‹ Kembali</button>`) + btBanner() + `<div class="list">
     <div class="row"><span class="t">Status</span><span class="v">${esc(bt.state)}</span></div></div>
-    <div style="padding:20px 16px">
+    <div style="padding:16px">
       <button class="btn" data-a="connect">${bt.ch ? "Ganti printer" : "Cari & sambungkan printer"}</button>
       ${bt.ch ? `<div style="height:10px"></div><button class="btn red" data-a="disconnect">Putuskan koneksi</button>` : ""}
-    </div><div class="foot">Nyalakan printer, ketuk tombol di atas, lalu pilih nama printer dari daftar. Printer harus mendukung Bluetooth LE.
-    Setelah halaman dimuat ulang, sambungkan lagi dari sini.</div>`;
+    </div>
+    <div class="sec">Sebelum menyambung</div>
+    <div class="foot" style="line-height:1.5">
+      1. <b>Tutup aplikasi label lain</b> (geser ke atas dari app switcher) — printer Bluetooth LE hanya bisa tersambung ke satu aplikasi.<br>
+      2. Jika printer ada di <b>Pengaturan iPhone › Bluetooth</b> dan berstatus "Connected", ketuk ⓘ › <b>Lupakan Perangkat Ini</b>.<br>
+      3. Matikan lalu nyalakan printer, tunggu lampu biru berkedip, baru ketuk tombol di atas.<br>
+      4. Pilih nama printer di daftar (biasanya nama model, mis. "Printer_XXXX", "MPT-II", "GP-…", "XP-…").</div>
+    <div class="sec"><span>Log koneksi</span><button data-a="copylog">Salin</button></div>
+    <pre id="btlog" style="margin:0 16px;background:#fff;border-radius:10px;padding:10px;font-size:11px;white-space:pre-wrap;max-height:300px;overflow:auto">${esc(bt.log.join("\n") || "Belum ada aktivitas.")}</pre>
+    <div class="foot">Jika masih gagal, kirim isi log ini ke saya.</div>`;
 }
 function cropPage() {
   return nav("Crop Options", `<button data-a="back">‹ Kembali</button>`) + `<div class="list">` +
@@ -677,6 +761,7 @@ const actions = {
   qdel: el => { queue.items = queue.items.filter(i => i.id !== el.dataset.id); render(); },
   qclear: () => { queue.items = []; thumbCache.clear(); queue.msg = ""; render(); },
   qprint: () => printAll(),
+  copylog: () => { navigator.clipboard?.writeText(bt.log.join("\n")).then(() => toast("Log disalin."), () => toast("Tidak bisa menyalin — screenshot saja.")); },
   qcancel: () => { queue.cancel = true; queue.msg = "Membatalkan setelah halaman ini…"; updateBar(); }
 };
 app.addEventListener("click", e => {
@@ -691,6 +776,7 @@ app.addEventListener("input", e => {
 app.addEventListener("change", e => {
   const el = e.target, k = el.dataset.k;
   if (el.dataset.in === "cfg") { cfg[k] = el.checked; saveCfg(); render(); }
+  else if (el.dataset.in === "cfgtext") { cfg[k] = el.value.trim(); saveCfg(); }
   else if (el.dataset.in === "edb" && ed) { ed.doc[k] = el.checked; render(); }
   else if (el.dataset.in === "qdither") { queue.dither = el.checked; render(); }
 });
